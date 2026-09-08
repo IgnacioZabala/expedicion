@@ -10,7 +10,7 @@ st.set_page_config(
 )
 
 st.title("📦 Optimizador Inteligente de Pallets para Expedición")
-st.markdown("Planificación con restricciones físicas estrictas de peso y cajas por pallet.")
+st.markdown("Planificación avanzada con control simultáneo de **Peso Máximo**, **Cajas por Pallet** y **Cantidad de Pallets**.")
 
 # 1. Subida de archivos
 uploaded_files = st.file_uploader(
@@ -61,18 +61,22 @@ if uploaded_files:
         )
         
         st.sidebar.divider()
-        st.sidebar.subheader("3. Restricciones Operativas (Topes Físicos)")
+        st.sidebar.subheader("3. Las 3 Restricciones Operativas")
         
         peso_max_pallet = st.sidebar.number_input(
             "Peso Máximo por Pallet (kg):", 
-            min_value=100.0, max_value=2000.0, value=1020.0, step=10.0,
-            help="El pallet se cerrará automáticamente al alcanzar o superar este peso."
+            min_value=100.0, max_value=2000.0, value=1020.0, step=10.0
         )
         
         max_cajas_pallet = st.sidebar.number_input(
             "Cantidad Máxima de Cajas por Pallet:", 
-            min_value=1, max_value=200, value=84, step=1,
-            help="El pallet se cerrará automáticamente al alcanzar esta cantidad de cajas."
+            min_value=1, max_value=200, value=84, step=1
+        )
+        
+        cant_pallets_objetivo = st.sidebar.number_input(
+            "Cantidad Máxima de Pallets a armar:", 
+            min_value=1, max_value=50, value=5, step=1,
+            help="El sistema armará como máximo esta cantidad de pallets. Las cajas que no entren quedarán para revisión aparte."
         )
             
         # Filtrar dataframe según lotes elegidos
@@ -88,11 +92,11 @@ if uploaded_files:
         cajas_total_expedicion = len(df_expedicion)
         
         st.sidebar.divider()
-        st.sidebar.markdown(f"**Cajas en expedición:** {cajas_total_expedicion}")
-        st.sidebar.markdown(f"**Peso total:** {peso_total_expedicion:,.2f} kg")
+        st.sidebar.markdown(f"**Cajas disponibles:** {cajas_total_expedicion}")
+        st.sidebar.markdown(f"**Peso disponible:** {peso_total_expedicion:,.2f} kg")
         
         # --- CUERPO PRINCIPAL ---
-        st.info(f"Configuración lista para procesar **{cajas_total_expedicion} cajas** respetando un tope de **{peso_max_pallet} kg** y **{max_cajas_pallet} cajas** por pallet.")
+        st.info(f"Configuración activa: Topes de **{peso_max_pallet} kg** y **{max_cajas_pallet} cajas**, con un límite de hasta **{cant_pallets_objetivo} pallets**.")
         
         if st.button("🚀 Calcular Optimización de Pallets", type="primary"):
             pallets_generados = []
@@ -100,15 +104,22 @@ if uploaded_files:
             peso_acum_pallet = 0.0
             cajas_actual_pallet = []
             
+            cajas_procesadas_indices = []
+            
             for idx, row in df_expedicion.iterrows():
                 peso_caja = row['Peso']
                 
-                # Evaluamos si agregar esta caja supera CUALQUIERA de los dos límites físicos
+                # Comprobar si al agregar la caja superamos los topes físicos de peso o cantidad de cajas
                 supera_peso = (peso_acum_pallet + peso_caja > peso_max_pallet)
                 supera_cajas = (len(cajas_actual_pallet) >= max_cajas_pallet)
                 
-                # Si superamos los límites y ya tenemos al menos una caja en el pallet actual, lo cerramos
+                # Si superamos los límites, debemos cerrar el pallet actual
                 if (supera_peso or supera_cajas) and len(cajas_actual_pallet) > 0:
+                    # Antes de cerrar, verificamos si ya alcanzamos el límite máximo de pallets permitidos
+                    if pallet_actual_num >= cant_pallets_objetivo:
+                        # Ya alcanzamos el cupo máximo de pallets, dejamos de procesar aquí
+                        break
+                    
                     df_subset = df_expedicion.loc[cajas_actual_pallet]
                     pallets_generados.append({
                         'Pallet': f"P-{pallet_actual_num:02d}",
@@ -117,15 +128,21 @@ if uploaded_files:
                         'Lotes Incluidos': ", ".join(df_subset['Lote'].astype(str).unique()),
                         'Codigos': df_subset['Codigo'].tolist()
                     })
+                    cajas_procesadas_indices.extend(cajas_actual_pallet)
+                    
                     pallet_actual_num += 1
                     peso_acum_pallet = 0.0
                     cajas_actual_pallet = []
                 
+                # Si ya alcanzamos el límite de pallets y el pallet actual está lleno/cerrándose, paramos
+                if pallet_actual_num > cant_pallets_objetivo:
+                    break
+                
                 peso_acum_pallet += peso_caja
                 cajas_actual_pallet.append(idx)
             
-            # Guardar el último pallet con las cajas restantes
-            if cajas_actual_pallet:
+            # Cerrar el último pallet si quedó con cajas y todavía no excedimos la cantidad de pallets
+            if len(cajas_actual_pallet) > 0 and pallet_actual_num <= cant_pallets_objetivo:
                 df_subset = df_expedicion.loc[cajas_actual_pallet]
                 pallets_generados.append({
                     'Pallet': f"P-{pallet_actual_num:02d}",
@@ -134,37 +151,52 @@ if uploaded_files:
                     'Lotes Incluidos': ", ".join(df_subset['Lote'].astype(str).unique()),
                     'Codigos': df_subset['Codigo'].tolist()
                 })
+                cajas_procesadas_indices.extend(cajas_actual_pallet)
             
-            df_resumen_salida = pd.DataFrame([{
-                'Pallet': p['Pallet'],
-                'Lotes': p['Lotes Incluidos'],
-                'Cantidad de Cajas': p['Cantidad de Cajas'],
-                'Peso Total (kg)': p['Peso Total (kg)']
-            } for p in pallets_generados])
+            # Identificar cajas que quedaron afuera
+            indices_afuera = [i for i in df_expedicion.index if i not in cajas_procesadas_indices]
+            df_remanente = df_expedicion.loc[indices_afuera]
             
+            # Mostrar Resultados
             st.subheader("📋 Plan de Paletizado Óptimo")
-            st.dataframe(df_resumen_salida, use_container_width=True)
+            if pallets_generados:
+                df_resumen_salida = pd.DataFrame([{
+                    'Pallet': p['Pallet'],
+                    'Lotes': p['Lotes Incluidos'],
+                    'Cantidad de Cajas': p['Cantidad de Cajas'],
+                    'Peso Total (kg)': p['Peso Total (kg)']
+                } for p in pallets_generados])
+                st.dataframe(df_resumen_salida, use_container_width=True)
+                
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("Total Pallets Armados", len(pallets_generados))
+                col_m2.metric("Peso Promedio por Pallet", f"{df_resumen_salida['Peso Total (kg)'].mean():.2f} kg")
+                col_m3.metric("Cajas Asignadas a Pallets", df_resumen_salida['Cantidad de Cajas'].sum())
+            else:
+                st.warning("No se pudo armar ningún pallet con los parámetros actuales.")
             
-            # Métricas principales
-            col_m1, col_m2, col_m3 = st.columns(3)
-            col_m1.metric("Total Pallets Resultantes", len(pallets_generados))
-            col_m2.metric("Peso Promedio por Pallet", f"{df_resumen_salida['Peso Total (kg)'].mean():.2f} kg")
-            col_m3.metric("Cajas Totales Asignadas", df_resumen_salida['Cantidad de Cajas'].sum())
+            # Mostrar remanentes si los hay
+            if len(df_remanente) > 0:
+                st.subheader("⚠️ Cajas Remanentes (Fuera de los Pallets armados)")
+                st.info(f"Quedaron **{len(df_remanente)} cajas** sin asignar (Peso total: **{df_remanente['Peso'].sum():,.2f} kg**).")
+                with st.expander("🔍 Ver detalle de cajas remanentes"):
+                    st.dataframe(df_remanente[['Numerador', 'Codigo', 'Lote', 'Peso', 'Elaboracion']], hide_index=True)
             
-            # Detalle expandible por pallet
+            # Detalle expandible por pallet armado
             with st.expander("🔍 Ver detalle de cajas por cada Pallet"):
                 for p in pallets_generados:
                     st.markdown(f"### Pallet: {p['Pallet']} (Lotes: {p['Lotes Incluidos']} | Peso: {p['Peso Total (kg)']:.2f} kg | Cajas: {p['Cantidad de Cajas']})")
                     df_det = df_expedicion[df_expedicion['Codigo'].isin(p['Codigos'])][['Numerador', 'Codigo', 'Lote', 'Peso', 'Elaboracion']]
                     st.dataframe(df_det, hide_index=True)
             
-            # Botón de descarga
-            csv_data = df_resumen_salida.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Descargar Plan de Expedición (CSV)",
-                data=csv_data,
-                file_name="Plan_Pallets_Expedicion.csv",
-                mime="text/csv"
-            )
+            # Botones de descarga
+            if pallets_generados:
+                csv_data = df_resumen_salida.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Descargar Plan de Pallets (CSV)",
+                    data=csv_data,
+                    file_name="Plan_Pallets_Expedicion.csv",
+                    mime="text/csv"
+                )
 else:
     st.info("👈 Por favor, subí los archivos de producción en la barra lateral o área principal para comenzar.")

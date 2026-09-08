@@ -31,7 +31,11 @@ if uploaded_files:
             
     if all_data:
         df_total = pd.concat(all_data, ignore_index=True)
+        
+        # Limpieza de tipos de datos clave para evitar errores
         df_total['Peso'] = pd.to_numeric(df_total['Peso'], errors='coerce')
+        df_total['Numerador'] = pd.to_numeric(df_total['Numerador'], errors='coerce')
+        df_total['Fecha'] = pd.to_numeric(df_total['Fecha'], errors='coerce')
         
         # Resumen general de stock disponible
         st.sidebar.header("📊 Stock Disponible")
@@ -66,7 +70,6 @@ if uploaded_files:
                 cant_pallets_objetivo = None
                 
         with col3:
-            # Selección de lotes a incluir en la expedición
             lotes_disponibles = sorted(df_total['Lote'].dropna().unique().tolist())
             lotes_seleccionados = st.multiselect(
                 "Lotes a incluir en la expedición (Dejar vacío para usar todos):", 
@@ -77,12 +80,9 @@ if uploaded_files:
         if not lotes_seleccionados:
             lotes_seleccionados = lotes_disponibles
             
-        # Filtrar dataframe según lotes elegidos
+        # Filtrar dataframe según lotes elegidos y ordenar de forma segura
         df_expedicion = df_total[df_total['Lote'].isin(lotes_seleccionados)].copy()
-        
-        # Ordenar priorizando mantener los lotes juntos (minimiza mezcla de lotes por pallet)
-        # Se ordenan por Lote y luego por Fecha/Numerador
-        df_expedicion = df_expedicion.sort_values(by=['Lote', 'Fecha', 'Numerador']).reset_index(drop=True)
+        df_expedicion = df_expedicion.sort_values(by=['Lote', 'Fecha', 'Numerador'], na_position='last').reset_index(drop=True)
         
         peso_total_expedicion = df_expedicion['Peso'].sum()
         cajas_total_expedicion = len(df_expedicion)
@@ -93,7 +93,6 @@ if uploaded_files:
             pallets_generados = []
             
             if modo_operacion == "Definir Cantidad de Pallets":
-                # Estrategia: Dividir el peso total en N pallets lo más homogéneos posible, respetando lotes
                 peso_objetivo_por_pallet = peso_total_expedicion / cant_pallets_objetivo
                 
                 pallet_actual_num = 1
@@ -101,7 +100,6 @@ if uploaded_files:
                 cajas_actual_pallet = []
                 
                 for idx, row in df_expedicion.iterrows():
-                    # Si ya armamos pallets y pasamos el objetivo, evaluamos si conviene cerrar
                     if (pallet_actual_num < cant_pallets_objetivo and 
                         peso_acum_pallet >= peso_objetivo_por_pallet * 0.95 and 
                         len(cajas_actual_pallet) > 0):
@@ -110,7 +108,7 @@ if uploaded_files:
                             'Pallet': f"P-{pallet_actual_num:02d}",
                             'Cantidad de Cajas': len(cajas_actual_pallet),
                             'Peso Total (kg)': round(peso_acum_pallet, 3),
-                            'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].unique()),
+                            'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].astype(str).unique()),
                             'Codigos': df_expedicion.loc[cajas_actual_pallet, 'Codigo'].tolist()
                         })
                         pallet_actual_num += 1
@@ -120,18 +118,16 @@ if uploaded_files:
                     peso_acum_pallet += row['Peso']
                     cajas_actual_pallet.append(idx)
                 
-                # Cerrar el último pallet
                 if cajas_actual_pallet:
                     pallets_generados.append({
                         'Pallet': f"P-{pallet_actual_num:02d}",
                         'Cantidad de Cajas': len(cajas_actual_pallet),
                         'Peso Total (kg)': round(peso_acum_pallet, 3),
-                        'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].unique()),
+                        'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].astype(str).unique()),
                         'Codigos': df_expedicion.loc[cajas_actual_pallet, 'Codigo'].tolist()
                     })
             
             else:
-                # Estrategia: Llenar hasta alcanzar el peso máximo estricto por pallet
                 pallet_actual_num = 1
                 peso_acum_pallet = 0.0
                 cajas_actual_pallet = []
@@ -142,7 +138,7 @@ if uploaded_files:
                             'Pallet': f"P-{pallet_actual_num:02d}",
                             'Cantidad de Cajas': len(cajas_actual_pallet),
                             'Peso Total (kg)': round(peso_acum_pallet, 3),
-                            'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].unique()),
+                            'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].astype(str).unique()),
                             'Codigos': df_expedicion.loc[cajas_actual_pallet, 'Codigo'].tolist()
                         })
                         pallet_actual_num += 1
@@ -157,11 +153,10 @@ if uploaded_files:
                         'Pallet': f"P-{pallet_actual_num:02d}",
                         'Cantidad de Cajas': len(cajas_actual_pallet),
                         'Peso Total (kg)': round(peso_acum_pallet, 3),
-                        'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].unique()),
+                        'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].astype(str).unique()),
                         'Codigos': df_expedicion.loc[cajas_actual_pallet, 'Codigo'].tolist()
                     })
             
-            # Mostrar Resultados
             df_resumen_salida = pd.DataFrame([{
                 'Pallet': p['Pallet'],
                 'Lotes': p['Lotes Incluidos'],
@@ -172,20 +167,17 @@ if uploaded_files:
             st.subheader("📋 Plan de Paletizado Óptimo")
             st.dataframe(df_resumen_salida, use_container_width=True)
             
-            # Métricas
             col_m1, col_m2, col_m3 = st.columns(3)
             col_m1.metric("Total Pallets Resultantes", len(pallets_generados))
             col_m2.metric("Peso Promedio por Pallet", f"{df_resumen_salida['Peso Total (kg)'].mean():.2f} kg")
             col_m3.metric("Lotes Involucrados", len(lotes_seleccionados))
             
-            # Detalle expandible por pallet
             with st.expander("🔍 Ver detalle de cajas por cada Pallet"):
                 for p in pallets_generados:
                     st.markdown(f"### Pallet: {p['Pallet']} (Lotes: {p['Lotes Incluidos']} | Peso: {p['Peso Total (kg)']:.2f} kg)")
                     df_det = df_expedicion.loc[p['Codigos'], ['Numerador', 'Codigo', 'Lote', 'Peso', 'Elaboracion']]
                     st.dataframe(df_det, hide_index=True)
             
-            # Botón de descarga
             csv_data = df_resumen_salida.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Descargar Plan de Expedición (CSV)",

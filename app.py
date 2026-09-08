@@ -87,10 +87,8 @@ if uploaded_files:
         
         # Aplicar orden según estrategia elegida
         if "FIFO" in estrategia:
-            # Orden cronológico estricto (Fecha de elaboración / Fecha de registro y numerador)
             df_expedicion = df_expedicion.sort_values(by=['Elaboracion', 'Fecha', 'Numerador'], na_position='last').reset_index(drop=True)
         else:
-            # Homogéneo: Agrupa por Lote primero, luego por orden interno
             df_expedicion = df_expedicion.sort_values(by=['Lote', 'Fecha', 'Numerador'], na_position='last').reset_index(drop=True)
         
         peso_total_expedicion = df_expedicion['Peso'].sum()
@@ -107,15 +105,12 @@ if uploaded_files:
             pallets_generados = []
             
             if usar_limite_pallets and cant_pallets_objetivo > 0:
-                # Algoritmo de distribución forzada a N pallets exactos
-                # Se particula el dataframe en N trozos lo más equitativos posibles en cantidad de cajas
                 total_cajas = len(df_expedicion)
                 cajas_por_lote_base = total_cajas // cant_pallets_objetivo
                 resto = total_cajas % cant_pallets_objetivo
                 
                 idx_actual = 0
                 for p_num in range(1, cant_pallets_objetivo + 1):
-                    # Asignar un poquito más si hay resto
                     tamanio_pallet = cajas_por_lote_base + (1 if p_num <= resto else 0)
                     if tamanio_pallet <= 0:
                         continue
@@ -128,11 +123,10 @@ if uploaded_files:
                             'Pallet': f"P-{p_num:02d}",
                             'Cantidad de Cajas': len(df_subset),
                             'Peso Total (kg)': round(df_subset['Peso'].sum(), 3),
-                            'Lotes Incluidos': ", ".join(df_subset['Lote'].astype(str.lower).unique() if hasattr(df_subset['Lote'], 'str') else df_subset['Lote'].astype(str).unique()),
+                            'Lotes Incluidos': ", ".join(df_subset['Lote'].astype(str).unique()),
                             'Codigos': df_subset['Codigo'].tolist()
                         })
             else:
-                # Algoritmo secuencial basado en topes máximos (Peso y Cajas)
                 pallet_actual_num = 1
                 peso_acum_pallet = 0.0
                 cajas_actual_pallet = []
@@ -177,20 +171,17 @@ if uploaded_files:
             st.subheader("📋 Plan de Paletizado Óptimo")
             st.dataframe(df_resumen_salida, use_container_width=True)
             
-            # Métricas principales
             col_m1, col_m2, col_m3 = st.columns(3)
             col_m1.metric("Total Pallets Resultantes", len(pallets_generados))
             col_m2.metric("Peso Promedio por Pallet", f"{df_resumen_salida['Peso Total (kg)'].mean():.2f} kg")
             col_m3.metric("Cajas Totales Asignadas", df_resumen_salida['Cantidad de Cajas'].sum())
             
-            # Detalle expandible por pallet
             with st.expander("🔍 Ver detalle de cajas por cada Pallet"):
                 for p in pallets_generados:
                     st.markdown(f"### Pallet: {p['Pallet']} (Lotes: {p['Lotes Incluidos']} | Peso: {p['Peso Total (kg)']:.2f} kg | Cajas: {p['Cantidad de Cajas']})")
                     df_det = df_expedicion[df_expedicion['Codigo'].isin(p['Codigos'])][['Numerador', 'Codigo', 'Lote', 'Peso', 'Elaboracion']]
                     st.dataframe(df_det, hide_index=True)
             
-            # Botón de descarga
             csv_data = df_resumen_salida.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Descargar Plan de Expedición (CSV)",

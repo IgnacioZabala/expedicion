@@ -104,12 +104,13 @@ if uploaded_files:
                         peso_acum_pallet >= peso_objetivo_por_pallet * 0.95 and 
                         len(cajas_actual_pallet) > 0):
                         
+                        df_subset = df_expedicion.loc[cajas_actual_pallet]
                         pallets_generados.append({
                             'Pallet': f"P-{pallet_actual_num:02d}",
                             'Cantidad de Cajas': len(cajas_actual_pallet),
                             'Peso Total (kg)': round(peso_acum_pallet, 3),
-                            'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].astype(str).unique()),
-                            'Codigos': df_expedicion.loc[cajas_actual_pallet, 'Codigo'].tolist()
+                            'Lotes Incluidos': ", ".join(df_subset['Lote'].astype(str).unique()),
+                            'Codigos': df_subset['Codigo'].tolist()
                         })
                         pallet_actual_num += 1
                         peso_acum_pallet = 0.0
@@ -119,12 +120,13 @@ if uploaded_files:
                     cajas_actual_pallet.append(idx)
                 
                 if cajas_actual_pallet:
+                    df_subset = df_expedicion.loc[cajas_actual_pallet]
                     pallets_generados.append({
                         'Pallet': f"P-{pallet_actual_num:02d}",
                         'Cantidad de Cajas': len(cajas_actual_pallet),
                         'Peso Total (kg)': round(peso_acum_pallet, 3),
-                        'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].astype(str).unique()),
-                        'Codigos': df_expedicion.loc[cajas_actual_pallet, 'Codigo'].tolist()
+                        'Lotes Incluidos': ", ".join(df_subset['Lote'].astype(str).unique()),
+                        'Codigos': df_subset['Codigo'].tolist()
                     })
             
             else:
@@ -134,12 +136,13 @@ if uploaded_files:
                 
                 for idx, row in df_expedicion.iterrows():
                     if peso_acum_pallet + row['Peso'] > peso_max_pallet and len(cajas_actual_pallet) > 0:
+                        df_subset = df_expedicion.loc[cajas_actual_pallet]
                         pallets_generados.append({
                             'Pallet': f"P-{pallet_actual_num:02d}",
                             'Cantidad de Cajas': len(cajas_actual_pallet),
                             'Peso Total (kg)': round(peso_acum_pallet, 3),
-                            'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].astype(str).unique()),
-                            'Codigos': df_expedicion.loc[cajas_actual_pallet, 'Codigo'].tolist()
+                            'Lotes Incluidos': ", ".join(df_subset['Lote'].astype(str).unique()),
+                            'Codigos': df_subset['Codigo'].tolist()
                         })
                         pallet_actual_num += 1
                         peso_acum_pallet = 0.0
@@ -149,12 +152,13 @@ if uploaded_files:
                     cajas_actual_pallet.append(idx)
                     
                 if cajas_actual_pallet:
+                    df_subset = df_expedicion.loc[cajas_actual_pallet]
                     pallets_generados.append({
                         'Pallet': f"P-{pallet_actual_num:02d}",
                         'Cantidad de Cajas': len(cajas_actual_pallet),
                         'Peso Total (kg)': round(peso_acum_pallet, 3),
-                        'Lotes Incluidos': ", ".join(df_expedicion.loc[cajas_actual_pallet, 'Lote'].astype(str).unique()),
-                        'Codigos': df_expedicion.loc[cajas_actual_pallet, 'Codigo'].tolist()
+                        'Lotes Incluidos': ", ".join(df_subset['Lote'].astype(str).unique()),
+                        'Codigos': df_subset['Codigo'].tolist()
                     })
             
             df_resumen_salida = pd.DataFrame([{
@@ -175,7 +179,7 @@ if uploaded_files:
             with st.expander("🔍 Ver detalle de cajas por cada Pallet"):
                 for p in pallets_generados:
                     st.markdown(f"### Pallet: {p['Pallet']} (Lotes: {p['Lotes Incluidos']} | Peso: {p['Peso Total (kg)']:.2f} kg)")
-                    df_det = df_expedicion.loc[p['Codigos'], ['Numerador', 'Codigo', 'Lote', 'Peso', 'Elaboracion']]
+                    df_det = df_expedicion[df_expedicion['Codigo'].isin(p['Codigos'])][['Numerador', 'Codigo', 'Lote', 'Peso', 'Elaboracion']]
                     st.dataframe(df_det, hide_index=True)
             
             csv_data = df_resumen_salida.to_csv(index=False).encode('utf-8')
